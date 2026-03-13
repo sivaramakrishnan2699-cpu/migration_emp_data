@@ -1,0 +1,87 @@
+--------------------------source table---------------------------------
+create table emp_stg(
+emp_id number,
+emp_name varchar2(100),
+salary number,
+dept_id number,
+created_date date);
+
+DROP TABLE EMP_STG;
+
+insert into emp_stg(EMP_ID,EMP_NAME,SALARY,DEPT_ID,CREATED_DATE) values(101,'John'   ,50000,10,sysdate);
+insert into emp_stg(EMP_ID,EMP_NAME,SALARY,DEPT_ID,CREATED_DATE) values(102,'Sam'    ,60000,10,sysdate);
+insert into emp_stg(EMP_ID,EMP_NAME,SALARY,DEPT_ID,CREATED_DATE) values(103,'David'  ,70000,10,sysdate);
+insert into emp_stg(EMP_ID,EMP_NAME,SALARY,DEPT_ID,CREATED_DATE) values(104,'Michael',20000,10,sysdate);
+insert into emp_stg(EMP_ID,EMP_NAME,SALARY,DEPT_ID,CREATED_DATE) values(105,'John'   ,10000,10,sysdate);
+--------------------------------------Target table-------------------------------
+create table employee(
+emp_id number,
+emp_name varchar2(100),
+salary number,
+dept_id number,
+created_date date,
+updated_date date);
+---------------------------------------error_log--------------------------------
+create table emp_error_log(
+error_id number,
+emp_id number,
+error_msg varchar2(4000),
+error_date date);
+----------------------------------------audit table------------------------------
+create table emp_audit(
+audit_id number,
+total_rows number,
+success_rows number,
+failed_rows number,
+Process_date date);
+--------------------------------------------create sequence----------------------------
+create SEQUENCE emp_error_Seq start with 1;
+create sequence emp_audit_seq start with 1;
+-------------------------------------------validtion function---------------------------
+create or replace function validate_salary(p_salary number)return varchar2 is
+begin
+if p_salary < 0 then
+return 'invlaid';
+else
+return 'valid';
+end if;
+end;
+/
+-------------------------------------------main migration----------------------------------
+create or replace procedure migration_emp_date is 
+type ty is table of emp_stg%rowtype;
+a ty;
+v_success number :=0;
+v_failed number:=0;
+begin
+select * bulk collect into a from emp_stg;
+for i in 1..a.count loop
+begin
+if validate_salary(a(i).salary)=0 then
+insert into employee values(a(i).emp_id,a(i).emp_name,a(i).salary,a(i).dept_id,a(i).created_date,sysdate);
+v_success:=v_success+1;
+else
+insert into emp_error_log values(emp_error_seq.nextval,a(i).emp_id,'invalid salary',sysdate);
+v_failed:=v_failed+1;
+end if;
+exception
+when others then
+insert into emp_error_log values(emp_error_seq.nextval,a(i).emp_id,sqlerrm,sysdate);
+v_failed:=v_failed+1;
+end;
+end loop;
+insert into emp_audit values(emp_audit_seq.nextval,a.count,v_salary,v_failed,sysdate);
+commit;
+end;
+/
+
+begin
+dbms_scheduler.create_job(
+job_name=>'emp_data_migration_job',
+job_type=>'plsql_block',
+job_action=>'begin migrate_emp_data; end;',
+start_date=>sysdate,
+repeat_interval=>'freq=daily',
+enabled=>true);
+end;
+/
